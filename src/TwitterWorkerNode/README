@@ -1,0 +1,4 @@
+This is the worker node server , which operates on a sharded subset of the clusters.
+It gets a set of clusters to operate on via a /updatei_clusters request
+
+It handles queries via a /cluster_tweet request. It responds with a json string : {"cluster_id" : 134, "score" : 0.235}. This is compared by the central server aggregating several worker node's outputs by choosing the response with the maximum score
