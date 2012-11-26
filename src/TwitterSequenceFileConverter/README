@@ -1,0 +1,11 @@
+TwitterSequenceFileConverter
+
+This is a simple Map-Reduce task which converts JSON files as recieved from the Twitter Streaming API into hadoop Sequence Files.
+The key is the tweet id, and the value is the raw UTF-8 encoded tweet text content. Both are of type Text.
+
+Usage:
+Compile and export to jar
+
+$ hadoop jar facepalm.jar TwitterSequenceFileConverter input/ output/
+Where input/ is input folder containing several tweets as raw textfiles in json format , one tweet-json per line
+      output/ can be specified for sequence file processing by tools such as mahout,etc.
