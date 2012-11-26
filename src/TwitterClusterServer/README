@@ -1,0 +1,25 @@
+TwitterClusterServer
+This starts a simple REST server which can be used to query information about a cluster.
+
+Usage:
+$ java ClusterServer hdfs://hdfs_uri PORT_NUMBER
+
+PORT_NUMBER is the port number on which the server has to listen.
+hdfs://hdfs_uri is the uri to the common access HDFS. 
+
+
+The REST server responds to two requests:
+/query
+This has to be a POST request with a payload containing a single integer the cluster id number.
+It responds with a json of the following format:
+{
+	id: cluster_id,
+	words: [
+	 { word : "hello" , score : 0.623 }, {word : "world" , score : 0.2262 }]
+}
+which is the corresponding centroid of the cluster.
+
+/update
+This query instructs the server to update its cluster source to a new cluster on hdfs. this has to be called before any other query. This maybe called to update the cluster source to a newly clustered data source.
+This takes as input a payload of data in json with 3 objects :
+dictionary_file,frequency_file,centroid_file which are respectively the 3 inputs needed for cluster centroid data.
