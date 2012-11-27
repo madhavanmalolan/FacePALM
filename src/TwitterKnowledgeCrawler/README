@@ -1,0 +1,22 @@
+This is a Knowledge Crawler. It generates tweets for better clustering.
+People generally don't tweet facts. Hence it uses the facts from some source (say wiki) and then generates a tweet from that page.
+It will generate tweets based on what tweets people are making.
+
+Dependencies:
+python-redis
+python-nltk
+python-twisted
+
+Run the server as 
+$python httpserver.py hdfs_location listening_port
+
+
+Example:
+$python httpserver.py hdfs://10.3.10.21:9000 12345
+
+
+So it listens for new tweets from the tweet server and writes the generated tweets to the hadoop file system from where the tweets are read. It assigns a random Tweet ID to the tweet.
+
+This has been written for wikipedia but can be extened to other fact sources.
+
+Also the script can work in a distributed manner. So the python script can be run on multiple systems, but using the same redis database. Can probably write a load distributer.
