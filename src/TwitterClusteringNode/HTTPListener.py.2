@@ -1,0 +1,179 @@
+import BaseHTTPServer
+import urlparse
+import socket
+import os
+import sys
+import json
+import urllib
+import httplib
+
+
+
+HOST_NAME = ""
+PORT_NUMBER = 8081
+
+HDFS_BASE_DIR = "/twitter_3/"
+ITER = 0
+SERVER_IP = "192.168.63.103:8182"
+
+
+class tweets:
+    def __init__(self):
+	pass
+    def get_files_to_local(self):
+        '''Write stub here for transfering the tweets to the HDFS'''
+        location_of_tweets = "root@felicity.iiit.ac.in:/home/phinfinity/tmpf/tmpf"
+        destination_of_tweets = "./unclustered_local"
+        get_files_to_local_command = "scp -r %s %s"%(location_of_tweets,destination_of_tweets)
+        os.system(get_files_to_local_command)
+        return 0
+    def put_files_on_cloud(self,inputDirectory):
+	os.system("hadoop dfs -mkdir %s"%inputDirectory)
+	copy_to_hdfs = "hadoop dfs -copyFromLocal ./unclustered_local/* %s"%(inputDirectory)
+	return os.system(copy_to_hdfs)
+    def convert_to_sequencevector(self,input, output):
+	tweetSequencer= "hadoop jar tweetSequencer.jar TwiterSequencer %s %s"%(input,output)
+	return os.system(tweetSequencer)
+
+
+
+def cleanup(current):
+    clean_target = (current+1)%3 + 1
+    print "Cleaning up %d"%clean_target
+    get_rid_clusters = "hadoop dfs -rmr /twitter_%d/"%clean_target
+    return None
+
+
+
+    
+
+
+
+class clusterHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        self.send_response(200)
+	self.send_header("Content-type","text")
+	self.end_headers()
+    def do_GET(self):
+        self.send_response(200)
+	#Set HTTP Headers
+	#Set Content Type(Return) as plain text
+	self.send_header("Content-type","text")
+	self.end_headers()
+
+	#Process the URL to get the GET Variables
+	#Dictionary consisting of {variable_name: variable_value} pairs
+	get_params = self.get_URL_params(self.path)
+
+	#Process the request
+        response = "Recieved Request"
+	response = self.process_request(self.path.split("?")[0], get_params)
+
+    def process_request(self, absolute_path, get_params):
+	#Lets fork it here!
+	global ITER 
+	ITER = (ITER+1)%3 + 1
+	global HDFS_BASE_DIR 
+        HDFS_BASE_DIR = "/twitter_%d/"%(ITER)
+	os.system("hadoop dfs -mkdir %s"%HDFS_BASE_DIR)
+
+        cleanup(ITER)
+        
+        pid = os.fork()
+	response =  "Request Recieved - started reclustering"
+	self.wfile.write(response)
+        self.wfile.close()
+        if pid == 0:
+	    #In the main thread : close the HTTP request. The processing is going to take a while.
+	    response =  "Request Recieved - started reclustering"
+            return "None"
+	else:
+	    #Processing / clustering starts.
+	    # Make sure Hadoop is running and Mahout is available in the $PATH variable of your environment.
+	    print "Initiating Mahout with commandline arguments"
+	    
+	    # Get the Tweets.
+            tweetHandler = tweets()
+            ret_val = 0 #tweetHandler.get_files_to_local()
+            if ret_val!=0:
+	        printf("Error! in copying files to local")
+
+
+	    print("[Debug] get_files_to_local returned %d"%ret_val)
+
+	    
+	    #Get the Tweets onto the HDFS.
+            unclustered_files = "/tmp/unclustered"#HDFS_BASE_DIR+"unclustered/"
+	    #ret_val = tweetHandler.put_files_on_cloud(unclustered_files)	    
+	    print("[Debug] put_files_on_cloud returned %d"%ret_val)
+            
+            #Convert Tweets into SequenceVector (Done by tweetSequence.jar)
+	    sequence_directory = HDFS_BASE_DIR+"sequence"
+            ret_val = tweetHandler.convert_to_sequencevector(unclustered_files,sequence_directory)
+            
+
+	    #Assuming Tweets to be already present on the HDFS @ inputDirectory path in SequenceVector format.
+	    input_directory = sequence_directory
+	    output_directory = HDFS_BASE_DIR+"tfidf/"
+
+	    #convert into TF-IDF with the following parameters:
+	    #    1) clear the output dir before calculating the tfidf vectors
+	    #    2) Chunk size = 100 mega bytes
+	    #    3) Stop word for words with probability of occurence > 70 %
+	    #    4) Cosine Distance function with n = 2
+	    #    5) Consider Ngrams of upto N  = 2
+
+	    mahout_tfidf_command = "mahout seq2sparse -i %s -o %s -ow -chunk 100 -x 70 -ml 50 -n 2 -nv -ng 2"%(input_directory, output_directory)
+	    os.system(mahout_tfidf_command)
+
+            sequence_vectors = HDFS_BASE_DIR+"tfidf/tfidf-vectors"
+	    cluster_output = HDFS_BASE_DIR+"canopy"
+	    mahout_canopy_clustering_command = "mahout canopy -i  -o output -dm org.apache.mahout.common.distance.CosineDistanceMeasure -ow -t1 100 -t2 2"
+
+            mahout_kmeans_command = "mahout kmeans -i %s -c %s -o %s -cl -ow -x 10 -dm org.apache.mahout.common.distance.CosineDistanceMeasure -k 1000"%(sequence_vectors,HDFS_BASE_DIR+"canopy/",HDFS_BASE_DIR+"kmeans/")
+	    os.system(mahout_kmeans_command)
+
+            get_list_centroids_command = "hadoop jar centroids.jar GetClusters /twitter_3/kmeans/clusters-*-final /twitter_3/test_centroids -libjars ~/Softwares/Apache/mahout-distribution-0.7/mahout-math-0.7.jar"
+
+            hdfs_file_links = {} #Return Value
+	    hdfs_file_links['frequency_file'] = HDFS_BASE_DIR+"tfidf/frequency.file-0"
+	    hdfs_file_links['dictionary_file'] = HDFS_BASE_DIR+"tfidf/dictionary.file-0"
+	    hdfs_file_links['centroid_file'] =  HDFS_BASE_DIR+"kmeans/centroids_list/"
+	    json_hdfs_files = json.dumps(hdfs_file_links)
+
+            params = json_hdfs_files
+            headers = {"Content-type": "application/x-www-form-urlencoded","Accept": "text/plain"}
+	    connection = httplib.HTTPConnection(SERVER_IP)
+
+	    connection.request("POST","/finishedclustering",params,headers)
+	    response = connection.getresponse()
+            print response
+            
+            
+
+
+	     
+        
+        return "Unknown request. Handler Failed"
+
+
+    def get_URL_params(self, path):
+        variables_section_of_url = path.split("?")[-1]
+	dictionary_of_variables = urlparse.parse_qs(variables_section_of_url)
+	return dictionary_of_variables
+
+
+
+
+
+
+def main():
+    server_class = BaseHTTPServer.HTTPServer
+    global HOST_NAME, PORT_NUMBER
+    try:
+        httpd = server_class((HOST_NAME, PORT_NUMBER), clusterHTTPHandler)
+        httpd.serve_forever()
+    except Exception as e:
+        print e
+if __name__=="__main__":
+    main()
